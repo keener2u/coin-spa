@@ -1,15 +1,27 @@
 #include <ESP8266WiFi.h>
 #include "aWOT.h"
 #include "StaticFiles.h"
+#include <IRremoteESP8266.h>
+#include <IRrecv.h>
+#include <IRutils.h>
+#include <IRsend.h>
+
 
 #define LED_BUILTIN D4
 #define LED_GREEN D8
 
 const char WiFiAPPSK[] = "coinpass";
+const uint16_t kIrLed = D2;
+IRsend irsend(kIrLed);
+
+const uint16_t kRecvPin = D5;
+IRrecv irrecv(kRecvPin);
+decode_results results;
 
 WiFiServer server(80);
 Application app;
 bool ledOn;
+bool codeRecorded=false;
 
   void readLed(Request &req, Response &res) {
     res.print(ledOn);
@@ -26,7 +38,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
-   WiFi.mode(WIFI_AP);
+  irrecv.enableIRIn();
+  WiFi.mode(WIFI_AP);
 
   // Do a little work to get a unique-ish name. Append the
   // last two bytes of the MAC (HEX'd) to "Coin-":
@@ -48,13 +61,34 @@ void setup() {
   app.put("/led", &updateLed);
   app.route(staticFiles());
   WiFi.softAP(AP_NameChar, WiFiAPPSK);
+  irsend.begin();
+  irrecv.decode(&results);
   server.begin();
 }
 
 void loop() {
   WiFiClient client = server.available();
-
+ 
   if (client.connected()) {
     app.process(&client);
+  if(ledOn){
+      Serial.println("test");
+      irsend.sendRaw(resultToRawArray(&results),getCorrectedRawLength(&results),38);
+      Serial.println(resultToSourceCode(&results));
+      codeRecorded=false;
+      irrecv.resume();
+    }
+    else{
+       if (irrecv.decode(&results)&&(codeRecorded==false)) {
+      // print() & println() can't handle printing long longs. (uint64_t)
+      if (results.decode_type != UNKNOWN){
+      Serial.println(resultToSourceCode(&results));
+      codeRecorded=true;
+      Serial.println("");
+        // Receive the next value
+      }
+  }
+  delay(100);  
+    }
   }
 }
